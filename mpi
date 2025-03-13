@@ -1,0 +1,104 @@
+/*
+ * example calc of variance
+ * -- var calcs inline
+ *
+ * Requirements
+ * 1. file contains n, followed by the n datapoints
+ *
+ * mkbane (Nov 2024)
+ *
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <mpi.h>  // for MPI functions
+
+// function prototypes
+int get_num_data_points(FILE*);
+int read_data(FILE*, int, double*);  // returns number of points successfully read, populates array with data points
+
+// main routine reading args from command line
+int main(int argc, char** argv) {
+    int n;                 // number of data points
+    double *x;             // pointer to array holding data points
+    double *squaredDiffs;  // pointer to array holding squared differences (of x from mean of all x)
+    double local_sum = 0.0, global_sum = 0.0; // variables for local and global sum
+
+    // Initialize MPI
+    MPI_Init(&argc, &argv);
+
+    int world_size, world_rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+    FILE* filePtr;
+    char *filename = argv[1]; // filename is 1st parameter on command line
+
+    if (world_rank == 0) {
+        // only the root process opens the file
+        filePtr = fopen(filename, "r"); // open file, given by sole parameter, as read-only
+        if (filePtr == NULL) {
+            printf("Cannot open file %s\n", filename);
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        } else {
+            int totalNum = get_num_data_points(filePtr);
+            printf("There are allegedly %d data points to read\n", totalNum);
+            x = (double *) malloc(totalNum * sizeof(double));
+            if (x == NULL) {
+                printf("Error in allocating memory for data points\n");
+                MPI_Abort(MPI_COMM_WORLD, 1);
+            } else {
+                n = read_data(filePtr, totalNum, x);
+                printf("%d data points successfully read\n", n);
+                if (n != totalNum) printf("*** WARNING ***\n actual number read (%d) differs from header value (%d)\n\n", n, totalNum);
+            }
+        }
+    }
+
+    // Broadcast number of data points to all processes
+    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    if (world_rank != 0) {
+        // other processes allocate memory for x
+        x = (double *) malloc(n * sizeof(double));
+    }
+
+    // Broadcast the data points to all processes
+    MPI_Bcast(x, n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // Calculate partial sum in each process
+    int elements_per_proc = n / world_size;
+    int start = world_rank * elements_per_proc;
+    int end = (world_rank == world_size - 1) ? n : start + elements_per_proc;
+
+    for (int i = start; i < end; i++) {
+        local_sum += x[i];
+    }
+
+    // Reduce all partial sums to get the global sum
+    MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    if (world_rank == 0) {
+        double mean = global_sum / (double)n;
+        squaredDiffs = (double *) malloc(n * sizeof(double));
+        for (int i = 0; i < n; i++) {
+            double val = (x[i] - mean);
+            squaredDiffs[i] = val * val;
+        }
+
+        // Calculate global sum of squared differences
+        local_sum = 0.0;
+        for (int i = 0; i < n; i++) {
+            local_sum += squaredDiffs[i];
+        }
+        MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+        double variance = global_sum / (double)n;
+        printf("The variance is %f\n", variance);
+    }
+
+    // Finalize MPI
+    MPI_Finalize();
+    return 0;
+}
