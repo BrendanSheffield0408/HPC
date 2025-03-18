@@ -71,7 +71,9 @@ int main(int argc, char** argv) {
     // Calculate sum of x values
     double local_sum = 0.0;
     for (int i = rank; i < n; i += size) {
-        local_sum += x[i];
+        if (i < n) {
+            local_sum += x[i];
+        }
     }
     MPI_Reduce(&local_sum, &sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
@@ -82,24 +84,35 @@ int main(int argc, char** argv) {
 
     // Calculate squared differences
     for (int i = rank; i < n; i += size) {
-        double val = (x[i] - mean);
-        squaredDiffs[i] = val * val;
+        if (i < n) {
+            double val = (x[i] - mean);
+            squaredDiffs[i] = val * val;
+        }
     }
 
     // Calculate sum of squared differences
     local_sum = 0.0;
     for (int i = rank; i < n; i += size) {
-        local_sum += squaredDiffs[i];
+        if (i < n) {
+            local_sum += squaredDiffs[i];
+        }
     }
     MPI_Reduce(&local_sum, &sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
     // Calculate min and max absolute values
-    double minabs = fabs(x[0]);
-    double maxabs = fabs(x[0]);
+    double minabs, maxabs;
+    if (totalNum > 0) {
+        minabs = fabs(x[0]);
+        maxabs = fabs(x[0]);
+    } else {
+        minabs = maxabs = 0.0;
+    }
     for (int i = rank; i < n; i += size) {
-        double val = fabs(x[i]);
-        if (val < minabs) minabs = val;
-        if (val > maxabs) maxabs = val;
+        if (i < n) {
+            double val = fabs(x[i]);
+            if (val < minabs) minabs = val;
+            if (val > maxabs) maxabs = val;
+        }
     }
     double global_minabs, global_maxabs;
     MPI_Reduce(&minabs, &global_minabs, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
@@ -121,6 +134,3 @@ int main(int argc, char** argv) {
     free(x);
     free(squaredDiffs);
     return 0;
-}
-    return 0;
-}
